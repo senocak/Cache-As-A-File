@@ -1,10 +1,3 @@
-# IntelliJ HTTP Client request collection for Cache As a File project
-# How to use:
-# 1) Start the app: ./gradlew bootRun
-# 2) Open this file in IntelliJ IDEA or Fleet, and click the Run icons next to each request.
-# 3) You can set environment-specific variables using the named variables below or HTTP Client environments.
-
-### Environment variables
 @host=localhost
 @port=8080
 @baseUrl=http://{{host}}:{{port}}
@@ -12,17 +5,17 @@
 
 ### Get all users (not cached)
 GET {{baseUrl}}/api/users
-Accept: application/json
+
+> {%
+    client.global.set("id", response.body[0].id);
+    client.global.set("username", response.body[0].username);
+%}
 
 ### Get user by ID (first call loads from storage, subsequent uses cache)
-# Try with an existing seeded user: user1, user2, or user3
-GET {{baseUrl}}/api/users/user1
-Accept: application/json
+GET {{baseUrl}}/api/users/{{id}}
 
 ### Get user by username (cached in usersByUsername)
-# Seeded usernames: john.doe, jane.smith, bob.wilson
-GET {{baseUrl}}/api/users/username/john.doe
-Accept: application/json
+GET {{baseUrl}}/api/users/username/{{username}}
 
 ### Create a new user (CachePut on users cache)
 # Will return the created user. We capture returned id to use in subsequent requests.
@@ -38,46 +31,25 @@ Accept: application/json
 }
 
 > {%
-// Capture the created user id from response JSON
-const body = response.body;
-if (body && body.id) {
-  client.global.set("createdUserId", body.id);
-  client.log("Captured createdUserId=" + body.id);
-} else {
-  client.log("No id in response; cannot set createdUserId");
-}
+client.global.set("id", response.body.id);
 %}
 
 ### Get the created user by ID (should be cached on subsequent runs)
-GET {{baseUrl}}/api/users/{{createdUserId}}
+GET {{baseUrl}}/api/users/{{id}}
 Accept: application/json
 
 ### Update last login for the created user (CachePut on users cache)
-PUT {{baseUrl}}/api/users/{{createdUserId}}/login
+PUT {{baseUrl}}/api/users/{{id}}/login
 Accept: application/json
 
 ### Delete the created user (CacheEvict on users cache)
-DELETE {{baseUrl}}/api/users/{{createdUserId}}
-Accept: application/json
+DELETE {{baseUrl}}/api/users/{{id}}
 
 ### Verify deletion (should return 404)
-GET {{baseUrl}}/api/users/{{createdUserId}}
-Accept: application/json
+GET {{baseUrl}}/api/users/{{id}}
 
 ### Clear all caches (users and usersByUsername)
 DELETE {{baseUrl}}/api/users/cache
-Accept: application/json
 
 ### Get cache stats
 GET {{baseUrl}}/api/users/cache/stats
-Accept: application/json
-
-### Sequence demo: cache behavior for user1
-# 1) First call loads user1 (storage)
-GET {{baseUrl}}/api/users/user1
-Accept: application/json
-
-###
-# 2) Second call should be faster (cache)
-GET {{baseUrl}}/api/users/user1
-Accept: application/json

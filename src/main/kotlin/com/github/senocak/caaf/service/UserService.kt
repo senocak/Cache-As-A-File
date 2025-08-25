@@ -5,9 +5,12 @@ import org.slf4j.LoggerFactory
 import org.springframework.cache.annotation.CacheEvict
 import org.springframework.cache.annotation.CachePut
 import org.springframework.cache.annotation.Cacheable
+import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 import java.time.LocalDateTime
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 /**
  * Example service that demonstrates the file-based caching functionality.
@@ -15,17 +18,16 @@ import java.util.concurrent.ConcurrentHashMap
  */
 @Service
 class UserService {
-    
-    private val logger = LoggerFactory.getLogger(UserService::class.java)
+    private val log = LoggerFactory.getLogger(javaClass)
     
     // In-memory storage for demonstration (in a real app, this would be a database)
     private val userStorage = ConcurrentHashMap<String, User>()
     
     init {
         // Initialize with some sample users
-        createUser("user1", "john.doe@example.com", "John", "Doe")
-        createUser("user2", "jane.smith@example.com", "Jane", "Smith")
-        createUser("user3", "bob.wilson@example.com", "Bob", "Wilson")
+        createUser(username = "user1", email = "john.doe@example.com", firstName = "John", lastName = "Doe")
+        createUser(username = "user2", email = "jane.smith@example.com", firstName = "Jane", lastName = "Smith")
+        createUser(username = "user3", email = "bob.wilson@example.com", firstName = "Bob", lastName = "Wilson")
     }
     
     /**
@@ -38,7 +40,7 @@ class UserService {
      */
     @Cacheable(value = ["users"], key = "#userId")
     fun getUserById(userId: String): User? {
-        logger.info("Loading user from storage: $userId")
+        log.info("Loading user from storage: $userId")
         // Simulate some processing time
         Thread.sleep(100)
         return userStorage[userId]
@@ -53,7 +55,7 @@ class UserService {
      */
     @Cacheable(value = ["usersByUsername"], key = "#username")
     fun getUserByUsername(username: String): User? {
-        logger.info("Loading user by username from storage: $username")
+        log.info("Loading user by username from storage: $username")
         // Simulate some processing time
         Thread.sleep(100)
         return userStorage.values.find { it.username == username }
@@ -71,15 +73,15 @@ class UserService {
      */
     @CachePut(value = ["users"], key = "#result.id")
     fun createUser(username: String, email: String, firstName: String, lastName: String): User {
-        logger.info("Creating new user: $username")
+        log.info("Creating new user: $username")
         val user = User(
-            id = "user_${System.currentTimeMillis()}",
+            id = UUID.randomUUID().toString(),
             username = username,
             email = email,
             firstName = firstName,
             lastName = lastName
         )
-        userStorage[user.id] = user
+        userStorage.put(user.id, user)
         return user
     }
     
@@ -91,7 +93,7 @@ class UserService {
      */
     @CachePut(value = ["users"], key = "#userId")
     fun updateLastLogin(userId: String): User? {
-        logger.info("Updating last login for user: $userId")
+        log.info("Updating last login for user: $userId")
         val user = userStorage[userId] ?: return null
         val updatedUser = user.copy(lastLoginAt = LocalDateTime.now())
         userStorage[userId] = updatedUser
@@ -107,7 +109,7 @@ class UserService {
      */
     @CacheEvict(value = ["users"], key = "#userId")
     fun deleteUser(userId: String): Boolean {
-        logger.info("Deleting user: $userId")
+        log.info("Deleting user: $userId")
         val user = userStorage.remove(userId)
         return user != null
     }
@@ -117,8 +119,9 @@ class UserService {
      * This is useful for maintenance or when you want to refresh all cached data.
      */
     @CacheEvict(value = ["users", "usersByUsername"], allEntries = true)
+    @Scheduled(fixedDelay = 10 * 1_000, initialDelay = 500, timeUnit = TimeUnit.MILLISECONDS)
     fun clearAllCaches() {
-        logger.info("Clearing all user caches")
+        log.info("Clearing all user caches")
     }
     
     /**

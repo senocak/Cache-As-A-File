@@ -17,3 +17,13 @@ data class User(
     val fullName: String
         get() = "$firstName $lastName"
 }
+
+/**
+ * Request DTO for creating a user.
+ */
+data class CreateUserRequest(
+    val username: String,
+    val email: String,
+    val firstName: String,
+    val lastName: String
+)

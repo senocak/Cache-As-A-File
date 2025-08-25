@@ -1,0 +1,3 @@
+spring:
+  application:
+    name: Cache As a File
