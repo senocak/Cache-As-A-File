@@ -58,6 +58,7 @@ At construction time it receives:
 - `valueType`: the runtime value type for Jackson map deserialization.
 - `cacheDirectory`: where JSON files should live.
 - `objectMapper`: optional, with a Kotlin and Java time friendly default.
+- `applicationEventPublisher`: optional, used to publish cache insert and eviction events.
 
 Example:
 
@@ -232,7 +233,7 @@ The JSON remains readable and timestamp fields are written as ISO-like values in
 
 ## Spring Cache Integration
 
-The core library also includes a Spring adapter, but the file cache does not depend on Spring for its own behavior.
+The core library also includes Spring adapters. File reads and writes work without Spring event publishing, but Spring applications can provide an `ApplicationEventPublisher` to receive cache events.
 
 Spring's `Cache` interface stores values as `Any?`, while `JsonFileCache` needs a concrete value type to deserialize from disk. The bridge solves that with `SpringCacheEntry`:
 
@@ -308,7 +309,8 @@ override fun getCache(name: String): Cache =
             name = cacheName,
             fileCache = fileCache,
             objectMapper = objectMapper,
-            keySerializer = keySerializer
+            keySerializer = keySerializer,
+            applicationEventPublisher = applicationEventPublisher
         )
     }
 ```
@@ -320,8 +322,11 @@ From the application side, this feels like ordinary Spring caching:
 @EnableCaching
 class CacheConfig {
     @Bean
-    fun cacheManager(): CacheManager =
-        FileCacheManager(cacheDirectory = Path.of("cache"))
+    fun cacheManager(applicationEventPublisher: ApplicationEventPublisher): CacheManager =
+        FileCacheManager(
+            cacheDirectory = Path.of("cache"),
+            applicationEventPublisher = applicationEventPublisher
+        )
 }
 ```
 
@@ -342,7 +347,7 @@ In the demo app this is exposed as a Spring Boot property:
 caaf:
   cache:
     directory: cache
-    clear-interval: 10s
+    clear-interval: 10s # 0 means no automatic clearing
 ```
 
 Then service methods can use standard annotations:
@@ -367,44 +372,68 @@ class UserService {
 
 ## Cache Events
 
-The core library can fire synchronous events after a cache insert or eviction succeeds.
+The core library publishes events after a cache insert or eviction succeeds.
 
-For direct `JsonFileCache` usage, subscribe with `CacheEventListener`:
+The event model is intentionally small:
 
 ```kotlin
-val listener = CacheEventListener<String, User> { event ->
-    when (event) {
-        is CacheInsertedEvent -> println("Inserted ${event.key} into ${event.cacheName}")
-        is CacheEvictedEvent -> println("Evicted ${event.key} from ${event.cacheName}")
-    }
-}
+sealed interface CacheEvent<K : Any, V : Any>
 
+data class CacheInsertedEvent<K : Any, V : Any>(
+    val cacheName: String,
+    val key: K,
+    val value: V,
+    val previousValue: V?
+)
+
+data class CacheEvictedEvent<K : Any, V : Any>(
+    val cacheName: String,
+    val key: K,
+    val value: V
+)
+```
+
+Events are published through Spring's `ApplicationEventPublisher`. For direct `JsonFileCache` usage, pass a publisher if you want events:
+
+```kotlin
 val cache = JsonFileCache(
     cacheName = "users",
     keyType = String::class.java,
     valueType = User::class.java,
     cacheDirectory = Path.of("cache"),
-    eventListeners = listOf(listener)
+    applicationEventPublisher = applicationEventPublisher
 )
 ```
 
-For Spring cache usage, pass listeners to `FileCacheManager`. Events from `FileBackedSpringCache` contain decoded application values, not internal `SpringCacheEntry` objects:
+For Spring cache usage, pass the publisher to `FileCacheManager`:
 
 ```kotlin
-val listener = CacheEventListener<String, Any> { event ->
-    when (event) {
-        is CacheInsertedEvent -> println("Inserted ${event.key}: ${event.value}")
-        is CacheEvictedEvent -> println("Evicted ${event.key}: ${event.value}")
-    }
-}
-
 FileCacheManager(
     cacheDirectory = Path.of("cache"),
-    eventListeners = listOf(listener)
+    applicationEventPublisher = applicationEventPublisher
 )
 ```
 
-`clear()` emits one `CacheEvictedEvent` per removed entry.
+`FileBackedSpringCache` publishes decoded application values, not internal `SpringCacheEntry` objects.
+
+In a Spring application, consume the events with normal Spring event listeners:
+
+```kotlin
+@Component
+class UserCacheEventListener {
+    @EventListener
+    fun onCacheEvent(event: CacheEvent<*, *>) {
+        when (event) {
+            is CacheInsertedEvent<*, *> ->
+                println("Inserted ${event.key} into ${event.cacheName}")
+            is CacheEvictedEvent<*, *> ->
+                println("Evicted ${event.key} from ${event.cacheName}")
+        }
+    }
+}
+```
+
+`put()` publishes `CacheInsertedEvent`, `evict()` publishes `CacheEvictedEvent` when an entry existed, and `clear()` publishes one `CacheEvictedEvent` per removed entry. Delivery follows the application's Spring event multicaster configuration.
 
 ## Tradeoffs
 
@@ -452,6 +481,7 @@ The tests cover:
 - loader exception handling
 - cache manager reuse
 - configurable periodic cache clearing
+- Spring `ApplicationEventPublisher` cache event publishing
 - HTTP workflows in the demo app
 - retrieval from file cache after backing storage is removed
 
