@@ -1,7 +1,7 @@
 package com.github.senocak.caaf.service
 
+import com.github.senocak.caaf.logger
 import com.github.senocak.caaf.model.User
-import org.slf4j.LoggerFactory
 import org.springframework.cache.annotation.CacheEvict
 import org.springframework.cache.annotation.CachePut
 import org.springframework.cache.annotation.Cacheable
@@ -11,6 +11,7 @@ import java.time.LocalDateTime
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import org.slf4j.Logger
 
 /**
  * Example service that demonstrates the file-based caching functionality.
@@ -18,7 +19,7 @@ import java.util.concurrent.TimeUnit
  */
 @Service
 class UserService {
-    private val log = LoggerFactory.getLogger(javaClass)
+    private val log: Logger by logger()
     
     // In-memory storage for demonstration (in a real app, this would be a database)
     private val userStorage = ConcurrentHashMap<String, User>()
@@ -94,8 +95,8 @@ class UserService {
     @CachePut(value = ["users"], key = "#userId")
     fun updateLastLogin(userId: String): User? {
         log.info("Updating last login for user: $userId")
-        val user = userStorage[userId] ?: return null
-        val updatedUser = user.copy(lastLoginAt = LocalDateTime.now())
+        val user: User = userStorage[userId] ?: return null
+        val updatedUser: User = user.copy(lastLoginAt = LocalDateTime.now())
         userStorage[userId] = updatedUser
         return updatedUser
     }
@@ -110,7 +111,7 @@ class UserService {
     @CacheEvict(value = ["users"], key = "#userId")
     fun deleteUser(userId: String): Boolean {
         log.info("Deleting user: $userId")
-        val user = userStorage.remove(userId)
+        val user: User? = userStorage.remove(userId)
         return user != null
     }
     

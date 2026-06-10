@@ -5,9 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.SerializationFeature
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
 import com.fasterxml.jackson.module.kotlin.KotlinModule
-import org.slf4j.LoggerFactory
+import com.github.senocak.caaf.logger
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.getValue
+import org.slf4j.Logger
 
 /**
  * JSON file-based cache implementation that stores values in memory and persists them to JSON files.
@@ -21,7 +23,7 @@ class JsonFileCache<K, V>(
     private val keyType: Class<K>,
     private val valueType: Class<V>
 ) {
-    private val log = LoggerFactory.getLogger(javaClass)
+    private val log: Logger by logger()
     private val cache: ConcurrentHashMap<K, V> = ConcurrentHashMap()
     private val objectMapper: ObjectMapper = ObjectMapper()
         .registerModule(KotlinModule.Builder().build())
@@ -69,7 +71,7 @@ class JsonFileCache<K, V>(
      * @return the removed value, or null if not found
      */
     fun evict(key: K): V? {
-        val removed = cache.remove(key)
+        val removed: V? = cache.remove(key)
         if (removed != null) {
             saveToFile()
         }
@@ -115,10 +117,10 @@ class JsonFileCache<K, V>(
             return
         }
         try {
-            val jsonContent = cacheFile.readText()
+            val jsonContent: String = cacheFile.readText()
             if (jsonContent.isNotBlank()) {
-                val typeRef = object : TypeReference<Map<K, V>>() {}
-                val loadedData = objectMapper.readValue(jsonContent, typeRef)
+                val typeRef: TypeReference<Map<K, V>> = object : TypeReference<Map<K, V>>() {}
+                val loadedData: Map<K, V> = objectMapper.readValue(jsonContent, typeRef)
                 cache.putAll(loadedData)
                 log.info("Loaded ${loadedData.size} entries from cache file ${cacheFile.absolutePath}")
             }
@@ -134,7 +136,7 @@ class JsonFileCache<K, V>(
     private fun saveToFile() {
         try {
             log.info("Attempting to save ${cache.size} entries to cache file ${cacheFile.absolutePath}")
-            val jsonContent = objectMapper.writeValueAsString(cache)
+            val jsonContent: String = objectMapper.writeValueAsString(cache)
             log.info("JSON content: $jsonContent")
             cacheFile.writeText(text = jsonContent)
             log.info("Successfully saved ${cache.size} entries to cache file ${cacheFile.absolutePath}")

@@ -19,24 +19,24 @@ class FileBackedSpringCache<K, V>(
     override fun getNativeCache(): Any = fileCache
     
     override fun get(key: Any): Cache.ValueWrapper? {
-        val value = fileCache.get(key = key as K)
-        return if (value != null) SimpleValueWrapper(value) else null
+        val value: V = fileCache.get(key = key as K) ?: return null
+        return SimpleValueWrapper(value)
     }
     
     override fun <T : Any?> get(key: Any, type: Class<T>?): T? {
-        val value = fileCache.get(key = key as K)
+        val value: V = fileCache.get(key = key as K) ?: return null
         return if (type?.isInstance(value) == true) value as T else null
     }
     
     override fun <T : Any?> get(key: Any, valueLoader: Callable<T>): T {
-        val k = key as K
+        val k: K = key as K
         // Check if value exists in cache
-        val existingValue = fileCache.get(key = k)
+        val existingValue: V? = fileCache.get(key = k)
         if (existingValue != null) {
             return existingValue as T
         }
         // Load value using the value loader
-        val newValue = valueLoader.call()
+        val newValue: T = valueLoader.call()
         fileCache.put(key = k, value = newValue as V)
         return newValue
     }

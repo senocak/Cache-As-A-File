@@ -1,11 +1,14 @@
 package com.github.senocak.caaf.cache
 
+import com.github.senocak.caaf.logger
 import org.springframework.cache.Cache
 import org.springframework.cache.CacheManager
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Primary
 import org.springframework.stereotype.Component
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.getValue
+import org.slf4j.Logger
 
 /**
  * Spring CacheManager implementation that creates and manages FileBackedSpringCache instances.
@@ -13,16 +16,16 @@ import java.util.concurrent.ConcurrentHashMap
 @Component
 @Primary
 class FileCacheManager : CacheManager {
-    private val log = LoggerFactory.getLogger(javaClass)
+    private val log: Logger by logger()
     private val caches: ConcurrentHashMap<String, Cache> = ConcurrentHashMap()
     
     override fun getCache(name: String): Cache =
-        caches.computeIfAbsent(name) { cacheName ->
+        caches.computeIfAbsent(name) { cacheName: String ->
             log.info("Creating new file-backed cache: $cacheName")
             // For simplicity, we'll use String keys and Object values
             // In a more sophisticated implementation, you might want to use reflection
             // to determine the actual key and value types from the method signatures
-            val fileCache = JsonFileCache<String, Any>(cacheName, String::class.java, Any::class.java)
+            val fileCache = JsonFileCache<String, Any>(cacheName = cacheName, keyType = String::class.java, valueType = Any::class.java)
             FileBackedSpringCache(name = cacheName, fileCache = fileCache)
         }
 
