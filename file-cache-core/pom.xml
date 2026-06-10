@@ -36,12 +36,12 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <kotlin.version>1.9.25</kotlin.version>
+        <kotlin.version>2.4.0</kotlin.version>
         <jackson.version>2.19.2</jackson.version>
         <spring.version>6.2.10</spring.version>
         <junit.version>5.12.2</junit.version>
-        <maven.compiler.release>21</maven.compiler.release>
-        <kotlin.compiler.jvmTarget>21</kotlin.compiler.jvmTarget>
+        <maven.compiler.release>25</maven.compiler.release>
+        <kotlin.compiler.jvmTarget>25</kotlin.compiler.jvmTarget>
     </properties>
 
     <dependencyManagement>
