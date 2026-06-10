@@ -9,6 +9,7 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import org.springframework.cache.Cache
 import org.springframework.cache.CacheManager
+import org.springframework.context.ApplicationEventPublisher
 
 /**
  * Spring CacheManager that creates one persistent JSON file per Spring cache name.
@@ -17,7 +18,8 @@ class FileCacheManager(
     private val cacheDirectory: Path = Path.of("cache"),
     private val objectMapper: ObjectMapper = JsonFileCache.defaultObjectMapper(),
     private val keySerializer: (Any) -> String = Any::toString,
-    private val clearInterval: Duration? = null
+    private val clearInterval: Duration? = null,
+    private val applicationEventPublisher: ApplicationEventPublisher? = null
 ) : CacheManager, AutoCloseable {
     private val caches: ConcurrentHashMap<String, Cache> = ConcurrentHashMap()
     private val clearExecutor: ScheduledExecutorService? = schedulePeriodicClear(clearInterval = clearInterval)
@@ -35,7 +37,8 @@ class FileCacheManager(
                 name = cacheName,
                 fileCache = fileCache,
                 objectMapper = objectMapper,
-                keySerializer = keySerializer
+                keySerializer = keySerializer,
+                applicationEventPublisher = applicationEventPublisher
             )
         }
 
@@ -43,14 +46,7 @@ class FileCacheManager(
         caches.keys.toList()
 
     fun clearAll() {
-        caches.values.forEach { cache: Cache ->
-            if (cache is FileBackedSpringCache) {
-                (cache.nativeCache as JsonFileCache<*, *>).clear()
-                cache.clear()
-                cache.evictIfPresent(cache.name)
-                caches.remove(key = cache.name)
-            }
-        }
+        caches.values.forEach(action = Cache::clear)
     }
 
     fun getCacheCount(): Int =

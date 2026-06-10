@@ -6,6 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -32,6 +33,69 @@ class JsonFileCacheTest {
         assertEquals(CachedUser(id = "1", username = "ada"), reloaded.get("1"))
         assertTrue(reloaded.containsKey("1"))
         assertEquals(setOf("1"), reloaded.keys())
+    }
+
+    @Test
+    fun `fires inserted and evicted events`() {
+        val directory = Files.createTempDirectory("json-file-cache-test")
+        val eventPublisher = RecordingApplicationEventPublisher()
+        val cache = JsonFileCache(
+            cacheName = "users",
+            keyType = String::class.java,
+            valueType = CachedUser::class.java,
+            cacheDirectory = directory,
+            applicationEventPublisher = eventPublisher
+        )
+
+        cache.put("1", CachedUser(id = "1", username = "ada"))
+        cache.put("1", CachedUser(id = "1", username = "grace"))
+        cache.evict("1")
+
+        val inserted = assertIs<CacheInsertedEvent<String, CachedUser>>(eventPublisher.events[0])
+        assertEquals("users", inserted.cacheName)
+        assertEquals("1", inserted.key)
+        assertEquals(CachedUser(id = "1", username = "ada"), inserted.value)
+        assertNull(inserted.previousValue)
+
+        val updated = assertIs<CacheInsertedEvent<String, CachedUser>>(eventPublisher.events[1])
+        assertEquals(CachedUser(id = "1", username = "grace"), updated.value)
+        assertEquals(CachedUser(id = "1", username = "ada"), updated.previousValue)
+
+        val evicted = assertIs<CacheEvictedEvent<String, CachedUser>>(eventPublisher.events[2])
+        assertEquals("users", evicted.cacheName)
+        assertEquals("1", evicted.key)
+        assertEquals(CachedUser(id = "1", username = "grace"), evicted.value)
+    }
+
+    @Test
+    fun `fires evicted events for every cleared entry`() {
+        val directory = Files.createTempDirectory("json-file-cache-test")
+        val eventPublisher = RecordingApplicationEventPublisher()
+        val cache = JsonFileCache(
+            cacheName = "users",
+            keyType = String::class.java,
+            valueType = CachedUser::class.java,
+            cacheDirectory = directory,
+            applicationEventPublisher = eventPublisher
+        )
+
+        cache.put("1", CachedUser(id = "1", username = "ada"))
+        cache.put("2", CachedUser(id = "2", username = "grace"))
+        eventPublisher.events.clear()
+
+        cache.clear()
+
+        assertEquals(2, eventPublisher.events.size)
+        assertEquals(
+            setOf(
+                "1" to CachedUser(id = "1", username = "ada"),
+                "2" to CachedUser(id = "2", username = "grace")
+            ),
+            eventPublisher.events.map { event: Any ->
+                val evicted = assertIs<CacheEvictedEvent<String, CachedUser>>(event)
+                evicted.key to evicted.value
+            }.toSet()
+        )
     }
 
     @Test

@@ -5,6 +5,7 @@ import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -61,6 +62,32 @@ class FileCacheManagerTest {
             CachedUser(id = "42", username = "ada"),
             reloadedManager.getCache("users").get(LookupKey("42"), CachedUser::class.java)
         )
+    }
+
+    @Test
+    fun `publishes cache events from managed caches`() {
+        val directory = Files.createTempDirectory("file-cache-manager-test")
+        val events: MutableList<CacheEvent<String, Any>> = mutableListOf()
+        val manager = FileCacheManager(
+            cacheDirectory = directory,
+            eventListeners = listOf(CacheEventListener { event: CacheEvent<String, Any> ->
+                events.add(event)
+            })
+        )
+        val cache: Cache = manager.getCache("users")
+
+        cache.put("42", CachedUser(id = "42", username = "ada"))
+        cache.evict("42")
+
+        val inserted = assertIs<CacheInsertedEvent<String, Any>>(events[0])
+        assertEquals("users", inserted.cacheName)
+        assertEquals("42", inserted.key)
+        assertEquals(CachedUser(id = "42", username = "ada"), inserted.value)
+
+        val evicted = assertIs<CacheEvictedEvent<String, Any>>(events[1])
+        assertEquals("users", evicted.cacheName)
+        assertEquals("42", evicted.key)
+        assertEquals(CachedUser(id = "42", username = "ada"), evicted.value)
     }
 
     @Test

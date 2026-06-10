@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import java.util.concurrent.Callable
 import org.springframework.cache.Cache
 import org.springframework.cache.support.SimpleValueWrapper
+import org.springframework.context.ApplicationEventPublisher
 
 /**
  * Spring Cache adapter backed by a typed file cache.
@@ -14,7 +15,8 @@ class FileBackedSpringCache(
     private val name: String,
     private val fileCache: FileCache<String, SpringCacheEntry>,
     private val objectMapper: ObjectMapper,
-    private val keySerializer: (Any) -> String = Any::toString
+    private val keySerializer: (Any) -> String = Any::toString,
+    private val applicationEventPublisher: ApplicationEventPublisher? = null
 ) : Cache {
     override fun getName(): String =
         name
@@ -53,21 +55,53 @@ class FileBackedSpringCache(
         if (value == null) {
             return
         }
+        val cacheKey: String = key.toCacheKey()
+        val previousValue: Any? = fileCache.get(cacheKey)?.toValue()
         fileCache.put(
-            key = key.toCacheKey(),
+            key = cacheKey,
             value = SpringCacheEntry(
                 type = value.javaClass.name,
                 value = objectMapper.valueToTree(value)
             )
         )
+        applicationEventPublisher?.publishEvent(
+            CacheInsertedEvent(
+                cacheName = name,
+                key = cacheKey,
+                value = value,
+                previousValue = previousValue
+            )
+        )
     }
 
     override fun evict(key: Any) {
-        fileCache.evict(key.toCacheKey())
+        val cacheKey: String = key.toCacheKey()
+        val removed: SpringCacheEntry? = fileCache.evict(cacheKey)
+        if (removed != null) {
+            applicationEventPublisher?.publishEvent(
+                CacheEvictedEvent(
+                    cacheName = name,
+                    key = cacheKey,
+                    value = removed.toValue()
+                )
+            )
+        }
     }
 
     override fun clear() {
+        val events: List<CacheEvictedEvent<String, Any>> = fileCache.keys().mapNotNull { cacheKey: String ->
+            fileCache.get(cacheKey)?.let { entry: SpringCacheEntry ->
+                CacheEvictedEvent(
+                    cacheName = name,
+                    key = cacheKey,
+                    value = entry.toValue()
+                )
+            }
+        }
         fileCache.clear()
+        events.forEach { event: CacheEvictedEvent<String, Any> ->
+            applicationEventPublisher?.publishEvent(event)
+        }
     }
 
     override fun invalidate(): Boolean {

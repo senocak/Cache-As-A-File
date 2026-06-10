@@ -1,5 +1,7 @@
 package com.github.senocak.caaf.service
 
+import com.github.senocak.caaf.core.CacheEvictedEvent
+import com.github.senocak.caaf.core.CacheInsertedEvent
 import com.github.senocak.caaf.logger
 import com.github.senocak.caaf.model.User
 import java.time.LocalDateTime
@@ -9,6 +11,7 @@ import org.slf4j.Logger
 import org.springframework.cache.annotation.CacheEvict
 import org.springframework.cache.annotation.CachePut
 import org.springframework.cache.annotation.Cacheable
+import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Service
 
 /**
@@ -77,4 +80,14 @@ class UserService {
             "userIds" to userStorage.keys.toList(),
             "usernames" to userStorage.values.map { it.username }
         )
+
+    @EventListener(value = [CacheEvictedEvent::class])
+    fun cacheEvictedEvent(event: CacheEvictedEvent<String, Any>) {
+        log.info("Cache evicted received: $event")
+    }
+
+    @EventListener(value = [CacheInsertedEvent::class])
+    fun cacheInsertedEvent(event: CacheInsertedEvent<String, Any>) {
+        log.info("Cache inserted received: $event")
+    }
 }

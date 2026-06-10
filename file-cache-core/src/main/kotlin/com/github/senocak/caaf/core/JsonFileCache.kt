@@ -13,6 +13,7 @@ import java.nio.file.StandardCopyOption
 import java.util.LinkedHashMap
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
+import org.springframework.context.ApplicationEventPublisher
 
 /**
  * JSON file cache that reads from and writes to disk for every operation.
@@ -24,10 +25,12 @@ class JsonFileCache<K : Any, V : Any>(
     private val keyType: Class<K>,
     private val valueType: Class<V>,
     private val cacheDirectory: Path = Path.of("cache"),
-    private val objectMapper: ObjectMapper = defaultObjectMapper()
+    private val objectMapper: ObjectMapper = defaultObjectMapper(),
+    private val applicationEventPublisher: ApplicationEventPublisher? = null
 ) : FileCache<K, V> {
+    private val cacheName: String = sanitizeCacheName(cacheName = cacheName)
     private val ioLock: ReentrantLock = ReentrantLock()
-    private val cacheFile: Path = cacheDirectory.resolve("${sanitizeCacheName(cacheName = cacheName)}.json")
+    private val cacheFile: Path = cacheDirectory.resolve("${this.cacheName}.json")
     private val mapType: JavaType = objectMapper.typeFactory.constructMapType(
         LinkedHashMap::class.java,
         keyType,
@@ -44,26 +47,54 @@ class JsonFileCache<K : Any, V : Any>(
         }
 
     override fun put(key: K, value: V) {
-        ioLock.withLock {
+        val event: CacheInsertedEvent<K, V> = ioLock.withLock {
             val snapshot: LinkedHashMap<K, V> = readFromFile()
+            val previousValue: V? = snapshot[key]
             snapshot[key] = value
             saveToFile(snapshot = snapshot)
+            CacheInsertedEvent(
+                cacheName = cacheName,
+                key = key,
+                value = value,
+                previousValue = previousValue
+            )
         }
+        fireEvent(event = event)
     }
 
-    override fun evict(key: K): V? =
-        ioLock.withLock {
+    override fun evict(key: K): V? {
+        val event: CacheEvictedEvent<K, V>? = ioLock.withLock {
             val snapshot: LinkedHashMap<K, V> = readFromFile()
             val removed: V? = snapshot.remove(key)
             if (removed != null) {
                 saveToFile(snapshot = snapshot)
+                CacheEvictedEvent(
+                    cacheName = cacheName,
+                    key = key,
+                    value = removed
+                )
+            } else {
+                null
             }
-            removed
         }
+        event?.let { fireEvent(event = it) }
+        return event?.value
+    }
 
     override fun clear() {
-        ioLock.withLock {
+        val events: List<CacheEvictedEvent<K, V>> = ioLock.withLock {
+            val snapshot: LinkedHashMap<K, V> = readFromFile()
             saveToFile(snapshot = emptyMap())
+            snapshot.map { (key: K, value: V) ->
+                CacheEvictedEvent(
+                    cacheName = cacheName,
+                    key = key,
+                    value = value
+                )
+            }
+        }
+        events.forEach { event: CacheEvictedEvent<K, V> ->
+            fireEvent(event = event)
         }
     }
 
@@ -119,6 +150,10 @@ class JsonFileCache<K : Any, V : Any>(
         } catch (_: AtomicMoveNotSupportedException) {
             Files.move(tempFile, cacheFile, StandardCopyOption.REPLACE_EXISTING)
         }
+    }
+
+    private fun fireEvent(event: CacheEvent<K, V>) {
+        applicationEventPublisher?.publishEvent(event)
     }
 
     companion object {

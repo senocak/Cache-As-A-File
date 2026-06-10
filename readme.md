@@ -365,6 +365,47 @@ class UserService {
 }
 ```
 
+## Cache Events
+
+The core library can fire synchronous events after a cache insert or eviction succeeds.
+
+For direct `JsonFileCache` usage, subscribe with `CacheEventListener`:
+
+```kotlin
+val listener = CacheEventListener<String, User> { event ->
+    when (event) {
+        is CacheInsertedEvent -> println("Inserted ${event.key} into ${event.cacheName}")
+        is CacheEvictedEvent -> println("Evicted ${event.key} from ${event.cacheName}")
+    }
+}
+
+val cache = JsonFileCache(
+    cacheName = "users",
+    keyType = String::class.java,
+    valueType = User::class.java,
+    cacheDirectory = Path.of("cache"),
+    eventListeners = listOf(listener)
+)
+```
+
+For Spring cache usage, pass listeners to `FileCacheManager`. Events from `FileBackedSpringCache` contain decoded application values, not internal `SpringCacheEntry` objects:
+
+```kotlin
+val listener = CacheEventListener<String, Any> { event ->
+    when (event) {
+        is CacheInsertedEvent -> println("Inserted ${event.key}: ${event.value}")
+        is CacheEvictedEvent -> println("Evicted ${event.key}: ${event.value}")
+    }
+}
+
+FileCacheManager(
+    cacheDirectory = Path.of("cache"),
+    eventListeners = listOf(listener)
+)
+```
+
+`clear()` emits one `CacheEvictedEvent` per removed entry.
+
 ## Tradeoffs
 
 This design is intentionally simple. That simplicity is useful, but it has clear tradeoffs.

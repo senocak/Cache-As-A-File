@@ -132,6 +132,66 @@ class FileBackedSpringCacheTest {
         assertEquals(0, backingCache.size())
     }
 
+    @Test
+    fun `fires decoded spring cache insert and evict events`() {
+        val events: MutableList<CacheEvent<String, Any>> = mutableListOf()
+        val cache = FileBackedSpringCache(
+            name = "users",
+            fileCache = InMemoryFileCache(),
+            objectMapper = JsonFileCache.defaultObjectMapper(),
+            eventListeners = listOf(CacheEventListener { event: CacheEvent<String, Any> ->
+                events.add(event)
+            })
+        )
+
+        cache.put("42", CachedUser(id = "42", username = "ada"))
+        cache.put("42", CachedUser(id = "42", username = "grace"))
+        cache.evict("42")
+
+        val inserted = assertIs<CacheInsertedEvent<String, Any>>(events[0])
+        assertEquals("users", inserted.cacheName)
+        assertEquals("42", inserted.key)
+        assertEquals(CachedUser(id = "42", username = "ada"), inserted.value)
+        assertNull(inserted.previousValue)
+
+        val updated = assertIs<CacheInsertedEvent<String, Any>>(events[1])
+        assertEquals(CachedUser(id = "42", username = "grace"), updated.value)
+        assertEquals(CachedUser(id = "42", username = "ada"), updated.previousValue)
+
+        val evicted = assertIs<CacheEvictedEvent<String, Any>>(events[2])
+        assertEquals("42", evicted.key)
+        assertEquals(CachedUser(id = "42", username = "grace"), evicted.value)
+    }
+
+    @Test
+    fun `fires decoded evict events when clearing spring cache`() {
+        val events: MutableList<CacheEvent<String, Any>> = mutableListOf()
+        val cache = FileBackedSpringCache(
+            name = "users",
+            fileCache = InMemoryFileCache(),
+            objectMapper = JsonFileCache.defaultObjectMapper(),
+            eventListeners = listOf(CacheEventListener { event: CacheEvent<String, Any> ->
+                events.add(event)
+            })
+        )
+        cache.put("42", CachedUser(id = "42", username = "ada"))
+        cache.put("43", CachedUser(id = "43", username = "grace"))
+        events.clear()
+
+        cache.clear()
+
+        assertEquals(
+            setOf(
+                "42" to CachedUser(id = "42", username = "ada"),
+                "43" to CachedUser(id = "43", username = "grace")
+            ),
+            events.map { event: CacheEvent<String, Any> ->
+                val evicted = assertIs<CacheEvictedEvent<String, Any>>(event)
+                evicted.key to evicted.value
+            }.toSet()
+        )
+    }
+
     data class CachedUser(
         val id: String,
         val username: String

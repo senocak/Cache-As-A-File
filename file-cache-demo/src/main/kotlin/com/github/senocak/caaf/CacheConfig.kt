@@ -8,15 +8,20 @@ import org.springframework.cache.CacheManager
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Primary
+import org.springframework.context.ApplicationEventPublisher
 
 @Configuration
 class CacheConfig {
     @Bean
     @Primary
-    fun cacheManager(properties: FileCacheProperties): CacheManager =
+    fun cacheManager(
+        properties: FileCacheProperties,
+        applicationEventPublisher: ApplicationEventPublisher
+    ): CacheManager =
         FileCacheManager(
             cacheDirectory = Path.of(properties.directory),
-            clearInterval = properties.clearInterval
+            clearInterval = properties.clearInterval,
+            applicationEventPublisher = applicationEventPublisher
         )
 }
 
