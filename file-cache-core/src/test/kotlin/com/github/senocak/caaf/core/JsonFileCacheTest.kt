@@ -35,6 +35,28 @@ class JsonFileCacheTest {
     }
 
     @Test
+    fun `reads current values from file for each get`() {
+        val directory = Files.createTempDirectory("json-file-cache-test")
+        val firstCache = JsonFileCache(
+            cacheName = "users",
+            keyType = String::class.java,
+            valueType = CachedUser::class.java,
+            cacheDirectory = directory
+        )
+        val secondCache = JsonFileCache(
+            cacheName = "users",
+            keyType = String::class.java,
+            valueType = CachedUser::class.java,
+            cacheDirectory = directory
+        )
+
+        firstCache.put("1", CachedUser(id = "1", username = "ada"))
+        secondCache.put("1", CachedUser(id = "1", username = "grace"))
+
+        assertEquals(CachedUser(id = "1", username = "grace"), firstCache.get("1"))
+    }
+
+    @Test
     fun `evicts and clears persisted values`() {
         val directory = Files.createTempDirectory("json-file-cache-test")
         val cache = JsonFileCache(

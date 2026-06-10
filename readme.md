@@ -1,8 +1,8 @@
-# Cache as a File: Persistent JSON Caching in Kotlin
+# Cache as a File: JSON-Only Caching in Kotlin
 
-Most application caches are fast because they live in memory. That speed comes with a tradeoff: when the process restarts, the cache is gone.
+Most caches are backed by memory. This project takes the opposite approach: the JSON file is the cache.
 
-This project explores a small, explicit alternative: keep cache entries in memory for fast reads, but persist every mutation to a JSON file so the cache can be reloaded on the next startup.
+Every read operation loads the current JSON file from disk. Every write operation reads the current file, modifies the snapshot, and writes it back. There is no in-memory `ConcurrentHashMap` inside the core cache implementation.
 
 The repository contains two modules:
 
@@ -13,10 +13,9 @@ This article focuses on the core logic, which is the part worth publishing and r
 
 ## The Core Idea
 
-The cache has two layers:
+The cache has one source of truth:
 
-1. An in-memory `ConcurrentHashMap` for fast reads.
-2. A JSON file per named cache for persistence.
+1. A JSON file per named cache.
 
 For a Spring application with multiple named caches, the structure can look like this:
 
@@ -26,7 +25,7 @@ cache/
 `-- usersByUsername.json
 ```
 
-Each cache file stores a full JSON object snapshot. On startup, the file is read back into memory.
+Each cache file stores a full JSON object snapshot. Reads and writes operate on that file directly.
 
 ## The Minimal Cache Contract
 
@@ -75,67 +74,67 @@ cache.put("user-1", user)
 val cachedUser: User? = cache.get("user-1")
 ```
 
-Internally, the cache keeps values in a `ConcurrentHashMap`:
-
-```kotlin
-private val cache: ConcurrentHashMap<K, V> = ConcurrentHashMap()
-```
-
-Reads are simple map lookups:
+Internally, `get` reads the latest file snapshot and returns the requested key:
 
 ```kotlin
 override fun get(key: K): V? =
-    cache[key]
+    ioLock.withLock {
+        readFromFile()[key]
+    }
 ```
 
-Writes update memory first, then persist the new snapshot:
+Writes read the current file, update that snapshot, and persist it:
 
 ```kotlin
 override fun put(key: K, value: V) {
-    cache[key] = value
-    saveToFile()
+    ioLock.withLock {
+        val snapshot: LinkedHashMap<K, V> = readFromFile()
+        snapshot[key] = value
+        saveToFile(snapshot = snapshot)
+    }
 }
 ```
 
-Eviction only writes to disk when something was actually removed:
+Eviction also works against the current file snapshot:
 
 ```kotlin
 override fun evict(key: K): V? {
-    val removed: V? = cache.remove(key)
-    if (removed != null) {
-        saveToFile()
+    ioLock.withLock {
+        val snapshot: LinkedHashMap<K, V> = readFromFile()
+        val removed: V? = snapshot.remove(key)
+        if (removed != null) {
+            saveToFile(snapshot = snapshot)
+        }
+        return removed
     }
-    return removed
 }
 ```
 
-This gives the cache predictable semantics: memory is the source of truth while the process is running, and the JSON file is the restart recovery mechanism.
+This gives the cache predictable file-only semantics: if the file changes, the next `get`, `containsKey`, `size`, or `keys` call sees the file's current contents.
 
-## Loading Data on Startup
+## Reading Data From File
 
-During initialization, `JsonFileCache` creates the cache directory and tries to load an existing cache file:
+During initialization, `JsonFileCache` only creates the cache directory:
 
 ```kotlin
 init {
     Files.createDirectories(cacheDirectory)
-    loadFromFile()
 }
 ```
 
-The load path intentionally ignores missing and empty files:
+The read path intentionally treats missing and empty files as an empty cache:
 
 ```kotlin
 if (!Files.exists(cacheFile) || Files.size(cacheFile) == 0L) {
-    return
+    return LinkedHashMap()
 }
 ```
 
-When data exists, Jackson reads it as a typed map:
+When data exists, Jackson reads it as a typed map and returns a fresh snapshot:
 
 ```kotlin
 val loadedData: Map<K, V> = objectMapper.readValue(input, mapType)
-cache.clear()
-cache.putAll(loadedData)
+return LinkedHashMap(loadedData)
 ```
 
 The explicit `keyType` and `valueType` constructor arguments matter here. They let Jackson reconstruct `Map<K, V>` instead of falling back to untyped maps.
@@ -147,7 +146,6 @@ Every mutation persists a full snapshot.
 The implementation does not write directly to the final cache file. It writes to a temporary file first:
 
 ```kotlin
-val snapshot: Map<K, V> = LinkedHashMap(cache)
 val tempFile: Path = Files.createTempFile(cacheDirectory, cacheFile.fileName.toString(), ".tmp")
 ```
 
@@ -178,24 +176,21 @@ This approach avoids leaving a half-written cache file during normal writes. A f
 
 ## Thread Safety
 
-The cache uses two different tools for two different concerns:
+The cache uses a `ReentrantLock` to serialize read-modify-write operations against the file:
 
-- `ConcurrentHashMap` protects concurrent reads and updates to the in-memory cache.
-- `ReentrantLock` serializes file load/save operations.
-
-The I/O lock keeps two threads from writing the same cache file at the same time:
+The I/O lock keeps two threads from reading and writing the same cache file at the same time:
 
 ```kotlin
 private val ioLock: ReentrantLock = ReentrantLock()
 ```
 
-The implementation takes a snapshot before writing:
+Every mutating operation reads a snapshot, changes it, and writes that snapshot:
 
 ```kotlin
-val snapshot: Map<K, V> = LinkedHashMap(cache)
+val snapshot: LinkedHashMap<K, V> = readFromFile()
 ```
 
-That keeps file serialization independent from ongoing map iteration details.
+This is safer than reading outside the lock and writing later, because it keeps each read-modify-write cycle consistent inside the current process.
 
 ## Cache Name Validation
 
@@ -262,7 +257,7 @@ private fun SpringCacheEntry.toValue(): Any {
 }
 ```
 
-This is what allows a file-backed Spring cache to reload typed values after application restart.
+This is what allows a file-only Spring cache to read typed values from disk on every lookup.
 
 ## FileBackedSpringCache
 
@@ -359,18 +354,18 @@ It works well when:
 - cache entries are moderate in size
 - write frequency is low or medium
 - readable local persistence is valuable
-- startup cache recovery matters
+- direct file-based reads are acceptable
 - Redis or another external cache would be operational overhead
 
 It is not a replacement for Redis, Caffeine, or a distributed cache when:
 
 - many application instances must share cache state
-- writes are extremely frequent
+- reads or writes are extremely frequent
 - cache files would become very large
 - eviction policies, TTL, or maximum size are required
 - cross-process file locking is required
 
-The current implementation persists the whole cache snapshot on each mutation. That is easy to reason about and easy to inspect, but it is not optimized for high write throughput.
+The current implementation reads the whole cache file for lookups and persists the whole cache snapshot on each mutation. That is easy to reason about and easy to inspect, but it is not optimized for high throughput.
 
 ## Testing
 
@@ -388,7 +383,7 @@ mvn -f file-cache-demo/pom.xml test
 
 The tests cover:
 
-- JSON persistence and reload
+- JSON file reads and persistence
 - empty file handling
 - cache name validation
 - Java time serialization
@@ -396,7 +391,7 @@ The tests cover:
 - loader exception handling
 - cache manager reuse
 - HTTP workflows in the demo app
-- retrieval from cache after backing storage is removed
+- retrieval from file cache after backing storage is removed
 
 ## Using the Core Library
 
@@ -428,12 +423,12 @@ dependencies {
 
 The main lesson in this project is not that every cache should be file-backed. Most should not.
 
-The useful idea is narrower: if a cache is local, moderate in size, and expensive to rebuild, a JSON-backed cache can be a practical middle ground between an in-memory map and a full external caching system.
+The useful idea is narrower: if a cache is local, moderate in size, and must be inspectable as a file, a JSON-only cache can be a practical alternative to an in-memory map.
 
 The implementation stays small because the responsibilities are separated:
 
 - `FileCache` defines behavior.
-- `JsonFileCache` handles memory plus persistence.
+- `JsonFileCache` handles file reads and writes.
 - `FileBackedSpringCache` adapts values to Spring.
 - `FileCacheManager` creates named caches on demand.
 

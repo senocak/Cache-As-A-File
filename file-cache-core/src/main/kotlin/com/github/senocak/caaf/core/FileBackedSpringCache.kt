@@ -9,6 +9,7 @@ import org.springframework.cache.support.SimpleValueWrapper
 /**
  * Spring Cache adapter backed by a typed file cache.
  */
+@Suppress(names = ["UNCHECKED_CAST"])
 class FileBackedSpringCache(
     private val name: String,
     private val fileCache: FileCache<String, SpringCacheEntry>,
@@ -22,12 +23,11 @@ class FileBackedSpringCache(
         fileCache
 
     override fun get(key: Any): Cache.ValueWrapper? =
-        fileCache.get(key.toCacheKey())?.toValue()?.let(::SimpleValueWrapper)
+        fileCache.get(key.toCacheKey())?.toValue()?.let(block = ::SimpleValueWrapper)
 
     override fun <T : Any?> get(key: Any, type: Class<T>?): T? {
         val value: Any = fileCache.get(key.toCacheKey())?.toValue() ?: return null
         if (type == null) {
-            @Suppress("UNCHECKED_CAST")
             return value as T
         }
         return if (type.isInstance(value)) type.cast(value) else null
@@ -37,13 +37,12 @@ class FileBackedSpringCache(
         val cacheKey: String = key.toCacheKey()
         val existingValue: Any? = fileCache.get(cacheKey)?.toValue()
         if (existingValue != null) {
-            @Suppress("UNCHECKED_CAST")
             return existingValue as T
         }
 
         return try {
             val loadedValue: T = valueLoader.call()
-            put(key, loadedValue)
+            put(key = key, value = loadedValue)
             loadedValue
         } catch (ex: Exception) {
             throw Cache.ValueRetrievalException(key, valueLoader, ex)

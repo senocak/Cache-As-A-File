@@ -17,8 +17,8 @@ class FileCacheManager(
     private val caches: ConcurrentHashMap<String, Cache> = ConcurrentHashMap()
 
     override fun getCache(name: String): Cache =
-        caches.computeIfAbsent(name) { cacheName ->
-            val fileCache = JsonFileCache(
+        caches.computeIfAbsent(name) { cacheName: String ->
+            val fileCache: JsonFileCache<String, SpringCacheEntry> = JsonFileCache(
                 cacheName = cacheName,
                 keyType = String::class.java,
                 valueType = SpringCacheEntry::class.java,
@@ -37,7 +37,7 @@ class FileCacheManager(
         caches.keys.toList()
 
     fun clearAll() {
-        caches.values.forEach(Cache::clear)
+        caches.values.forEach(action = Cache::clear)
     }
 
     fun getCacheCount(): Int =
