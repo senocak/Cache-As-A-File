@@ -1,0 +1,54 @@
+@host=localhost
+@port=8080
+@baseUrl=http://{{host}}:{{port}}
+@contentType=application/json
+
+### Get all users (not cached)
+GET {{baseUrl}}/api/users
+
+> {%
+    client.global.set("id", response.body[0].id);
+    client.global.set("username", response.body[0].username);
+%}
+
+### Get user by ID (first call loads from storage, subsequent uses cache)
+GET {{baseUrl}}/api/users/{{id}}
+
+### Get user by username (cached in usersByUsername)
+GET {{baseUrl}}/api/users/username/{{username}}
+
+### Create a new user (CachePut on users cache)
+POST {{baseUrl}}/api/users
+Content-Type: {{contentType}}
+Accept: application/json
+
+{
+  "username": "newuser_{{$timestamp}}",
+  "email": "newuser_{{$timestamp}}@example.com",
+  "firstName": "New",
+  "lastName": "User"
+}
+
+> {%
+client.global.set("id", response.body.id);
+%}
+
+### Get the created user by ID (should be cached on subsequent runs)
+GET {{baseUrl}}/api/users/{{id}}
+Accept: application/json
+
+### Update last login for the created user (CachePut on users cache)
+PUT {{baseUrl}}/api/users/{{id}}/login
+Accept: application/json
+
+### Delete the created user (CacheEvict on users cache)
+DELETE {{baseUrl}}/api/users/{{id}}
+
+### Verify deletion (should return 404)
+GET {{baseUrl}}/api/users/{{id}}
+
+### Clear all caches (users and usersByUsername)
+DELETE {{baseUrl}}/api/users/cache
+
+### Get cache stats
+GET {{baseUrl}}/api/users/cache/stats

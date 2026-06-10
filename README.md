@@ -1,194 +1,123 @@
-# File-Based Caching Implementation for Spring Boot
+# Cache As a File
 
-This project demonstrates a custom file-based caching implementation in Spring Boot using Kotlin. The cache stores data in memory and persists it to JSON files, allowing cached entries to survive application restarts.
+Reusable Kotlin library for file-backed caching, plus a Spring Boot demo app that consumes the library.
 
-## Features
+## Modules
 
-- **Generic Cache Interface**: `FileCache<K, V>` provides a type-safe caching interface
-- **JSON Persistence**: `JsonFileCache<K, V>` stores cache data in JSON files using Jackson
-- **Spring Integration**: Full integration with Spring's caching abstraction
-- **Automatic Loading**: Cache data is automatically loaded from files at startup
-- **Multiple Caches**: Support for multiple named caches, each stored in separate files
-- **Thread-Safe**: Uses `ConcurrentHashMap` for thread-safe operations
+- `file-cache-core` - Maven-publishable library with `FileCache<K, V>`, `JsonFileCache<K, V>`, and Spring Cache adapter classes.
+- `file-cache-demo` - Spring Boot REST app that demonstrates `@Cacheable`, `@CachePut`, and `@CacheEvict`.
 
-## Architecture
+## Library Usage
 
-### Core Components
-
-1. **`FileCache<K, V>`** - Generic interface defining cache operations
-2. **`JsonFileCache<K, V>`** - Implementation that stores data in memory and JSON files
-3. **`FileBackedSpringCache<K, V>`** - Adapter that implements Spring's `Cache` interface
-4. **`FileCacheManager`** - Spring `CacheManager` implementation
-5. **`CacheConfig`** - Spring configuration that registers the cache manager
-
-### File Structure
-
-Cache files are stored in the `cache/` directory with the following naming convention:
-- `cache/{cacheName}.json` - One JSON file per cache
-
-## Usage
-
-### Basic Caching Annotations
-
-The implementation works seamlessly with Spring's caching annotations:
+Use `file-cache-core` directly when you do not need Spring:
 
 ```kotlin
-@Service
-class UserService {
-    
-    @Cacheable(value = ["users"], key = "#userId")
-    fun getUserById(userId: String): User? {
-        // This will be cached and persisted to cache/users.json
-        return userRepository.findById(userId)
-    }
-    
-    @CachePut(value = ["users"], key = "#result.id")
-    fun createUser(user: User): User {
-        // This will update the cache with the new user
-        return userRepository.save(user)
-    }
-    
-    @CacheEvict(value = ["users"], key = "#userId")
-    fun deleteUser(userId: String) {
-        // This will remove the user from cache
-        userRepository.deleteById(userId)
-    }
-    
-    @CacheEvict(value = ["users"], allEntries = true)
-    fun clearCache() {
-        // This will clear all entries in the users cache
-    }
-}
+val cache = JsonFileCache(
+    cacheName = "users",
+    keyType = String::class.java,
+    valueType = User::class.java,
+    cacheDirectory = Path.of("cache")
+)
+
+cache.put("user-1", user)
+val cachedUser = cache.get("user-1")
 ```
 
-### Cache Configuration
+Each named cache is persisted as a JSON file:
 
-The cache manager is automatically configured as the default cache manager:
+```text
+cache/
+├── users.json
+└── usersByUsername.json
+```
+
+Use the library in a Spring application:
 
 ```kotlin
 @Configuration
 @EnableCaching
 class CacheConfig {
-    
     @Bean
-    @Primary
-    fun cacheManager(): CacheManager {
-        return FileCacheManager()
+    fun cacheManager(): CacheManager =
+        FileCacheManager(cacheDirectory = Path.of("cache"))
+}
+```
+
+Then use standard Spring cache annotations:
+
+```kotlin
+@Service
+class UserService {
+    @Cacheable(value = ["users"], key = "#userId")
+    fun getUserById(userId: String): User? =
+        userRepository.findById(userId)
+
+    @CachePut(value = ["users"], key = "#result.id")
+    fun createUser(user: User): User =
+        userRepository.save(user)
+
+    @CacheEvict(value = ["users"], key = "#userId")
+    fun deleteUser(userId: String) {
+        userRepository.deleteById(userId)
     }
 }
 ```
 
-## API Endpoints
+## Demo API
 
-The project includes a REST API to demonstrate the caching functionality:
+Run the Spring Boot app:
 
-### User Operations
+```bash
+mvn -f file-cache-core/pom.xml install
+./gradlew :file-cache-demo:bootRun
+```
 
-- `GET /api/users/{userId}` - Get user by ID (cached)
-- `GET /api/users/username/{username}` - Get user by username (cached)
-- `POST /api/users` - Create new user (updates cache)
-- `PUT /api/users/{userId}/login` - Update last login (updates cache)
-- `DELETE /api/users/{userId}` - Delete user (removes from cache)
-- `GET /api/users` - Get all users (not cached)
-- `DELETE /api/users/cache` - Clear all caches
-- `GET /api/users/cache/stats` - Get cache statistics
+Available endpoints:
 
-### Example Usage
+- `GET /api/users` - list demo users
+- `GET /api/users/{userId}` - get user by ID using the `users` cache
+- `GET /api/users/username/{username}` - get user by username using the `usersByUsername` cache
+- `POST /api/users` - create user and update the `users` cache
+- `PUT /api/users/{userId}/login` - update last login and update the `users` cache
+- `DELETE /api/users/{userId}` - delete user and evict from the `users` cache
+- `DELETE /api/users/cache` - clear user caches
+- `GET /api/users/cache/stats` - show demo storage statistics
 
-1. **Start the application**:
-   ```bash
-   ./gradlew bootRun
-   ```
+## Build
 
-2. **Get a user (first call loads from storage)**:
-   ```bash
-   curl http://localhost:8080/api/users/user1
-   ```
+```bash
+mvn -f file-cache-core/pom.xml verify
+mvn -f file-cache-core/pom.xml install
+./gradlew :file-cache-demo:build
+```
 
-3. **Get the same user again (uses cache)**:
-   ```bash
-   curl http://localhost:8080/api/users/user1
-   ```
+## Publish Core Library
 
-4. **Create a new user**:
-   ```bash
-   curl -X POST http://localhost:8080/api/users \
-     -H "Content-Type: application/json" \
-     -d '{
-       "username": "newuser",
-       "email": "newuser@example.com",
-       "firstName": "New",
-       "lastName": "User"
-     }'
-   ```
+Only `file-cache-core` is a Maven library. The demo app remains a Gradle Spring Boot app and is not published.
 
-5. **Check cache statistics**:
-   ```bash
-   curl http://localhost:8080/api/users/cache/stats
-   ```
+Publish the core artifact to your local Maven repository:
 
-## Cache File Format
+```bash
+mvn -f file-cache-core/pom.xml install
+```
 
-Cache files are stored as JSON objects where keys are the cache keys and values are the cached objects:
+Another project can then consume it with:
 
-```json
-{
-  "user1": {
-    "id": "user1",
-    "username": "john.doe",
-    "email": "john.doe@example.com",
-    "firstName": "John",
-    "lastName": "Doe",
-    "createdAt": "2024-01-15T10:30:00",
-    "lastLoginAt": null
-  },
-  "user2": {
-    "id": "user2",
-    "username": "jane.smith",
-    "email": "jane.smith@example.com",
-    "firstName": "Jane",
-    "lastName": "Smith",
-    "createdAt": "2024-01-15T10:30:00",
-    "lastLoginAt": "2024-01-15T11:45:00"
-  }
+```kotlin
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+dependencies {
+    implementation("com.github.senocak:file-cache-core:0.0.1-SNAPSHOT")
 }
 ```
 
-## Benefits
+The demo app writes cache files to `cache/` by default. Override it with:
 
-1. **Persistence**: Cache data survives application restarts
-2. **Transparency**: Cache files are human-readable JSON
-3. **Debugging**: Easy to inspect cache contents
-4. **Backup**: Cache files can be backed up or version controlled
-5. **Migration**: Cache data can be moved between environments
-
-## Limitations
-
-1. **Type Safety**: Current implementation uses `String` keys and `Object` values for simplicity
-2. **Performance**: File I/O on every cache operation (could be optimized with batching)
-3. **Concurrency**: File writes are not atomic (could be improved with file locking)
-4. **Memory Usage**: All cache data is kept in memory
-
-## Future Improvements
-
-1. **Type Reflection**: Use reflection to determine actual key/value types
-2. **Batch Operations**: Implement batch writes to reduce I/O
-3. **File Locking**: Add proper file locking for concurrent access
-4. **Compression**: Add optional compression for large cache files
-5. **TTL Support**: Add time-to-live functionality
-6. **Cache Size Limits**: Add maximum cache size limits
-
-## Building and Running
-
-```bash
-# Build the project
-./gradlew build
-
-# Run the application
-./gradlew bootRun
-
-# Run tests
-./gradlew test
+```yaml
+caaf:
+  cache:
+    directory: /tmp/my-cache
 ```
-
-The application will start on `http://localhost:8080` and create a `cache/` directory in the project root.

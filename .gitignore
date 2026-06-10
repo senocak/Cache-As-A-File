@@ -1,7 +1,10 @@
 HELP.md
 .gradle
-build/
-!gradle/wrapper/gradle-wrapper.jar
+**/build/
+**/target
+/cache/
+/file-cache-demo/cache/
+!file-cache-demo/gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
 
