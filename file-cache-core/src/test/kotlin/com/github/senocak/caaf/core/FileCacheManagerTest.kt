@@ -1,10 +1,13 @@
 package com.github.senocak.caaf.core
 
 import java.nio.file.Files
+import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 import org.springframework.cache.Cache
 
 class FileCacheManagerTest {
@@ -58,6 +61,53 @@ class FileCacheManagerTest {
             CachedUser(id = "42", username = "ada"),
             reloadedManager.getCache("users").get(LookupKey("42"), CachedUser::class.java)
         )
+    }
+
+    @Test
+    fun `periodically clears managed caches when clear interval is configured`() {
+        val directory = Files.createTempDirectory("file-cache-manager-test")
+        val manager = FileCacheManager(
+            cacheDirectory = directory,
+            clearInterval = Duration.ofMillis(25)
+        )
+
+        try {
+            val users = manager.getCache("users")
+            users.put("1", CachedUser(id = "1", username = "ada"))
+
+            assertTrue(manager.isPeriodicClearEnabled())
+            assertClearedWithin(timeout = Duration.ofSeconds(2)) {
+                users.get("1") == null
+            }
+        } finally {
+            manager.close()
+        }
+    }
+
+    @Test
+    fun `does not schedule periodic clearing when clear interval is absent or zero`() {
+        val directory = Files.createTempDirectory("file-cache-manager-test")
+        val managerWithoutInterval = FileCacheManager(cacheDirectory = directory)
+        val managerWithZeroInterval = FileCacheManager(cacheDirectory = directory, clearInterval = Duration.ZERO)
+
+        try {
+            assertFalse(managerWithoutInterval.isPeriodicClearEnabled())
+            assertFalse(managerWithZeroInterval.isPeriodicClearEnabled())
+        } finally {
+            managerWithoutInterval.close()
+            managerWithZeroInterval.close()
+        }
+    }
+
+    private fun assertClearedWithin(timeout: Duration, condition: () -> Boolean) {
+        val deadline = System.nanoTime() + timeout.toNanos()
+        while (System.nanoTime() < deadline) {
+            if (condition()) {
+                return
+            }
+            Thread.sleep(10)
+        }
+        assertTrue(condition(), "Cache was not cleared within $timeout")
     }
 
     data class CachedUser(

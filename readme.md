@@ -325,6 +325,26 @@ class CacheConfig {
 }
 ```
 
+`FileCacheManager` can also clear all managed caches periodically. The interval is optional:
+
+```kotlin
+FileCacheManager(
+    cacheDirectory = Path.of("cache"),
+    clearInterval = Duration.ofMinutes(10)
+)
+```
+
+When `clearInterval` is `null` or `Duration.ZERO`, no background clearing task is scheduled. When it is positive, the manager starts one daemon thread and calls `clearAll()` with that fixed delay. `FileCacheManager` implements `AutoCloseable`, so the scheduler is shut down when the Spring bean is destroyed.
+
+In the demo app this is exposed as a Spring Boot property:
+
+```yaml
+caaf:
+  cache:
+    directory: cache
+    clear-interval: 10s
+```
+
 Then service methods can use standard annotations:
 
 ```kotlin
@@ -390,6 +410,7 @@ The tests cover:
 - Spring value wrapping and typed reads
 - loader exception handling
 - cache manager reuse
+- configurable periodic cache clearing
 - HTTP workflows in the demo app
 - retrieval from file cache after backing storage is removed
 

@@ -1,8 +1,10 @@
 package com.github.senocak.caaf.controller
 
+import com.github.senocak.caaf.core.FileCacheManager
 import com.github.senocak.caaf.model.CreateUserRequest
 import com.github.senocak.caaf.model.User
 import com.github.senocak.caaf.service.UserService
+import org.springframework.cache.CacheManager
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -17,7 +19,10 @@ import org.springframework.web.bind.annotation.RestController
  */
 @RestController
 @RequestMapping(value = ["/api/users"])
-class UserController(private val userService: UserService) {
+class UserController(
+    private val userService: UserService,
+    private val cacheManager: CacheManager
+) {
     @GetMapping
     fun getAllUsers(): List<User> =
         userService.getAllUsers()
@@ -49,7 +54,12 @@ class UserController(private val userService: UserService) {
 
     @DeleteMapping(value = ["/cache"])
     fun clearAllCaches() {
-        userService.clearAllCaches()
+        when (cacheManager) {
+            is FileCacheManager -> cacheManager.clearAll()
+            else -> cacheManager.cacheNames.forEach { cacheName: String ->
+                cacheManager.getCache(cacheName)?.clear()
+            }
+        }
     }
 
     @GetMapping(value = ["/cache/stats"])

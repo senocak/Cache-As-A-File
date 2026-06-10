@@ -5,12 +5,10 @@ import com.github.senocak.caaf.model.User
 import java.time.LocalDateTime
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.TimeUnit
 import org.slf4j.Logger
 import org.springframework.cache.annotation.CacheEvict
 import org.springframework.cache.annotation.CachePut
 import org.springframework.cache.annotation.Cacheable
-import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Service
 
 /**
@@ -29,21 +27,21 @@ class UserService {
 
     @Cacheable(value = ["users"], key = "#userId")
     fun getUserById(userId: String): User? {
-        log.info("Loading user from storage: {}", userId)
+        log.info("Loading user from storage: $userId")
         Thread.sleep(100)
         return userStorage[userId]
     }
 
     @Cacheable(value = ["usersByUsername"], key = "#username")
     fun getUserByUsername(username: String): User? {
-        log.info("Loading user by username from storage: {}", username)
+        log.info("Loading user by username from storage: $username")
         Thread.sleep(100)
         return userStorage.values.find { it.username == username }
     }
 
     @CachePut(value = ["users"], key = "#result.id")
     fun createUser(username: String, email: String, firstName: String, lastName: String): User {
-        log.info("Creating new user: {}", username)
+        log.info("Creating new user: $username")
         val user = User(
             id = UUID.randomUUID().toString(),
             username = username,
@@ -66,18 +64,8 @@ class UserService {
 
     @CacheEvict(value = ["users"], key = "#userId")
     fun deleteUser(userId: String): Boolean {
-        log.info("Deleting user: {}", userId)
+        log.info("Deleting user: $userId")
         return userStorage.remove(userId) != null
-    }
-
-    /**
-     * Clears all user caches.
-     * This is useful for maintenance or when you want to refresh all cached data.
-     */
-    @Scheduled(fixedDelay = 10 * 1_000, initialDelay = 500, timeUnit = TimeUnit.MILLISECONDS)
-    @CacheEvict(value = ["users", "usersByUsername"], allEntries = true)
-    fun clearAllCaches() {
-        log.info("Clearing all user caches")
     }
 
     fun getAllUsers(): List<User> =

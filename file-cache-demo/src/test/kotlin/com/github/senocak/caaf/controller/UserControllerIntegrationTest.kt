@@ -22,7 +22,8 @@ import org.springframework.test.util.ReflectionTestUtils
 
 @SpringBootTest(
     properties = [
-        "caaf.cache.directory=\${java.io.tmpdir}/caaf-demo-controller-test-\${random.uuid}"
+        "caaf.cache.directory=\${java.io.tmpdir}/caaf-demo-controller-test-\${random.uuid}",
+        "caaf.cache.clear-interval=0ms"
     ]
 )
 @AutoConfigureMockMvc

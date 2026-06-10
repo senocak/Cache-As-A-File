@@ -26,7 +26,7 @@ class UserCacheIntegrationTest {
 
     @AfterTest
     fun clearCaches() {
-        userService.clearAllCaches()
+        (cacheManager as FileCacheManager).clearAll()
     }
 
     @Test
@@ -108,6 +108,7 @@ class UserCacheIntegrationTest {
         @DynamicPropertySource
         fun registerProperties(registry: DynamicPropertyRegistry) {
             registry.add("caaf.cache.directory") { cacheDirectory.toString() }
+            registry.add("caaf.cache.clear-interval") { "0ms" }
         }
     }
 }

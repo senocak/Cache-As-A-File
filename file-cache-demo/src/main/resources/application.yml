@@ -5,3 +5,4 @@ spring:
 caaf:
   cache:
     directory: cache
+    clear-interval: 10s # 0 means no automatic clearing
