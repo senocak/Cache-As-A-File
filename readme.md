@@ -1,4 +1,4 @@
-# Cache as a File: JSON-Only Caching in Kotlin
+# File-Backed JSON Cache for Kotlin & Spring
 
 Most caches are backed by memory. This project takes the opposite approach: the JSON file is the cache.
 
