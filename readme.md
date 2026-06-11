@@ -13,11 +13,16 @@ This article focuses on the core logic, which is the part worth publishing and r
 
 ## The Core Idea
 
-The cache has one source of truth:
+The cache has one source of truth: a JSON file per named cache. The file is not a backup of an in-memory map and it is not a write-through layer over RAM. It is the cache itself. There is no warm-up step, no rehydration on startup, and no divergence between memory and disk because there is no memory copy to drift.
 
-1. A JSON file per named cache.
+This single-source-of-truth model produces a few properties that are hard to get from a traditional cache:
 
-For a Spring application with multiple named caches, the structure can look like this:
+- **Inspectable state.** The current cache contents are a normal text file. You can `cat` it, diff it across deployments, commit a fixture version into tests, or open it in an editor while the application is running.
+- **Crash-consistent by construction.** Because every write replaces the file atomically (see *Persisting Safely* below), there is no "dirty memory not yet flushed" window. Whatever is on disk is what the cache holds.
+- **Trivial recovery.** Restarting the process does not lose the cache and does not require a rebuild. The file is already the state.
+- **Editable out-of-band.** Operators can hand-edit, restore from backup, or wipe a single cache by deleting its file. The next read picks up the new contents without restarting the app.
+
+For a Spring application with multiple named caches, the layout on disk mirrors the cache namespace one-to-one:
 
 ```text
 cache/
@@ -25,7 +30,9 @@ cache/
 `-- usersByUsername.json
 ```
 
-Each cache file stores a full JSON object snapshot. Reads and writes operate on that file directly.
+Each file stores a full JSON object snapshot keyed by the cache key. A read deserializes the snapshot and returns the requested entry; a write deserializes the snapshot, mutates it, and re-serializes it atomically. There is no partial-file format, no append log, and no segmented store — the entire cache for a given name is whatever is in that one file at that moment.
+
+That choice is deliberate. It trades raw throughput for clarity: every operation is one read or one read-modify-write against a single file, which is easy to reason about, easy to test, and easy to debug when something looks wrong in production.
 
 ## The Minimal Cache Contract
 
